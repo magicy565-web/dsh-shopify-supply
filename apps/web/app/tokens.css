@@ -1,0 +1,95 @@
+:root {
+  color-scheme: light;
+  --green-50: #eef6f2;
+  --green-100: #d8eee4;
+  --green-200: #b3d9c8;
+  --green-300: #7fbea3;
+  --green-400: #3d9978;
+  --green-500: #1a8063;
+  --green-600: #087654;
+  --green-700: #065c42;
+  --green-800: #054a36;
+  --green-900: #033528;
+  --green: var(--green-600);
+  --green-soft: #5d8a72;
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --sidebar: #f3f3f0;
+  --text: #202921;
+  --muted: #5e655c;
+  --secondary: #4a5248;
+  --line: #e2e5dd;
+  --hover: #edeee7;
+  --accent: #24352c;
+  --danger: #a54838;
+  --warning: #8a6230;
+  --shadow: 0 10px 32px #25281808;
+  --art-bottle: #e9eee7;
+  --art-lamp: #f1e9e2;
+  --art-bag: #edebe3;
+  --fs-label: 11px;
+  --fs-aux: 12px;
+  --fs-body: 13px;
+  --fs-body-lg: 15px;
+  --fs-title: 18px;
+  --fs-h3: 22px;
+  --fs-h2: 28px;
+  --fs-display: 36px;
+  --fs-hero: 42px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --ease: .15s ease;
+  --header-h: 72px;
+  --category-h: 48px;
+}
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bg: #0e100f;
+  --surface: #161916;
+  --sidebar: #121412;
+  --text: #e6ebe4;
+  --muted: #a3ada0;
+  --secondary: #c2cbbd;
+  --line: #2a2f2a;
+  --hover: #222622;
+  --accent: #d5e2d4;
+  --green: #6fba98;
+  --green-50: #1a2821;
+  --green-100: #20332a;
+  --green-600: #6fba98;
+  --green-700: #8fd0b0;
+  --danger: #f1a08d;
+  --warning: #e0b57a;
+  --shadow: 0 10px 32px #0006;
+  --art-bottle: #242d27;
+  --art-lamp: #342c27;
+  --art-bag: #302f28;
+}
+.ui-disclaimer {
+  font-size: var(--fs-aux);
+  line-height: 1.8;
+  color: var(--muted);
+}
+.ui-empty {
+  text-align: center;
+  padding: 72px 20px;
+  color: var(--muted);
+}
+.ui-empty h2 { font-size: var(--fs-title); margin: 16px 0 10px; color: var(--text); }
+.ui-empty p { font-size: var(--fs-body); line-height: 1.9; max-width: 360px; margin: 0 auto 20px; }
+.ui-skel {
+  background: linear-gradient(90deg, var(--hover) 0%, var(--line) 50%, var(--hover) 100%);
+  background-size: 200% 100%;
+  animation: ui-skel 1.2s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+@keyframes ui-skel { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
+@media (prefers-reduced-motion: reduce) { .ui-skel { animation: none; background: var(--hover); } }

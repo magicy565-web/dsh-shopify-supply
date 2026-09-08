@@ -1,0 +1,37 @@
+{
+  "name": "@dsh-supply/agent-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "catalog:seed": "tsx src/seed-catalog.ts",
+    "db:migrate": "tsx src/migrate.ts"
+  },
+  "dependencies": {
+    "@dsh-supply/agent-contracts": "workspace:*",
+    "@dsh-supply/agent-runtime": "workspace:*",
+    "@dsh-supply/agent-runtime-dsh": "workspace:*",
+    "@dsh-supply/catalog": "workspace:*",
+    "@dsh-supply/commerce": "workspace:*",
+    "@dsh-supply/config": "workspace:*",
+    "@dsh-supply/procurement": "workspace:*",
+    "@dsh-supply/storage-postgres": "workspace:*",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

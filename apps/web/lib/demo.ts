@@ -1,0 +1,9 @@
+import type { CatalogProduct } from '@dsh-supply/catalog'
+
+// UI-only examples. Never imported into the business catalog or sent to write APIs.
+const stamp = '2026-09-01T00:00:00.000Z'
+export const demoProducts: CatalogProduct[] = [
+  { id: 'preview-bottle', sku: 'PREVIEW-01', title: '随行宠物饮水瓶', description: '散步、露营或短途出行，一只手就能给它喝水。轻巧瓶身，配有可折叠饮水槽。', category: '宠物用品', tags: ['pet', 'dog', 'bottle', '宠物', '狗', '饮水'], images: [], status: 'active', createdAt: stamp, updatedAt: stamp, variants: [], offers: [{ id: 'preview-offer-01', productId: 'preview-bottle', supplierId: 'preview-supplier-01', currency: 'USD', unitPrice: 8.4, moq: 1, leadTimeDays: 9, stock: 240, shippingFlat: 5.2, status: 'active', updatedAt: stamp, supplier: { id: 'preview-supplier-01', code: 'PREVIEW', name: '示例宠物用品供应商', country: 'CN' } }] },
+  { id: 'preview-lamp', sku: 'PREVIEW-02', title: '便携蘑菇氛围灯', description: '柔和的暖光与简洁轮廓，让书桌、床头和户外晚餐多一点氛围。', category: '家居生活', tags: ['home', 'lamp', '家居', '灯'], images: [], status: 'active', createdAt: stamp, updatedAt: stamp, variants: [], offers: [{ id: 'preview-offer-02', productId: 'preview-lamp', supplierId: 'preview-supplier-02', currency: 'USD', unitPrice: 12.6, moq: 10, leadTimeDays: 12, stock: 180, shippingFlat: 6.8, status: 'active', updatedAt: stamp, supplier: { id: 'preview-supplier-02', code: 'PREVIEW', name: '示例家居用品供应商', country: 'CN' } }] },
+  { id: 'preview-bag', sku: 'PREVIEW-03', title: '日常帆布托特包', description: '装下日常所需的自然色帆布包。宽肩带、内侧口袋，适合通勤与周末出行。', category: '生活配件', tags: ['bag', 'outdoor', 'canvas', '户外', '包'], images: [], status: 'active', createdAt: stamp, updatedAt: stamp, variants: [], offers: [{ id: 'preview-offer-03', productId: 'preview-bag', supplierId: 'preview-supplier-03', currency: 'USD', unitPrice: 4.9, moq: 20, leadTimeDays: 7, stock: 600, shippingFlat: 4.1, status: 'active', updatedAt: stamp, supplier: { id: 'preview-supplier-03', code: 'PREVIEW', name: '示例纺织品供应商', country: 'CN' } }] },
+]

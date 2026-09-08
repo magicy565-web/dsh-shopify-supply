@@ -1,0 +1,5 @@
+product_sku,title,description,category,tags,images,variant_sku,variant_options,weight_grams,supplier_code,supplier_name,supplier_country,currency,unit_price,moq,lead_time_days,stock,shipping_flat
+WB-100,Insulated Travel Bottle,"Double-wall stainless steel bottle, 500 ml",Drinkware,"bottle|outdoor|gift",,WB-100-BLK,Color=Black|Capacity=500ml,320,SUP-A,Ningbo Outdoor Supply,CN,USD,4.20,24,7,480,38
+WB-100,Insulated Travel Bottle,"Double-wall stainless steel bottle, 500 ml",Drinkware,"bottle|outdoor|gift",,WB-100-BLK,Color=Black|Capacity=500ml,320,SUP-B,Yiwu Daily Goods,CN,USD,3.95,50,11,1200,52
+LB-210,Canvas Laptop Sleeve,"Padded canvas sleeve for 13-inch laptops",Bags,"laptop|office|canvas",,LB-210-NAT,Color=Natural|Size=13in,260,SUP-C,Shenzhen Carry Works,CN,USD,5.80,20,9,260,45
+LD-330,Rechargeable Desk Lamp,"USB-C dimmable desk lamp",Lighting,"desk|lamp|usb-c",,LD-330-WHT,Color=White,610,SUP-D,Dongguan Bright Home,CN,USD,8.60,10,12,95,64

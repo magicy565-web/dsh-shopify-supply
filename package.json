@@ -1,0 +1,32 @@
+{
+  "name": "dsh-shopify-supply",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "dev": "pnpm --filter @dsh-supply/agent-gateway --filter @dsh-supply/web --parallel dev",
+    "dev:gateway": "pnpm --filter @dsh-supply/agent-gateway dev",
+    "dev:web": "pnpm --filter @dsh-supply/web dev",
+    "catalog:seed": "pnpm --filter @dsh-supply/agent-gateway catalog:seed",
+    "db:migrate": "pnpm --filter @dsh-supply/agent-gateway db:migrate",
+    "test": "pnpm build && pnpm --filter @dsh-supply/runtime-contract test && pnpm --filter @dsh-supply/catalog-test test && pnpm --filter @dsh-supply/procurement-test test && pnpm --filter @dsh-supply/commerce-test test",
+    "test:dsh": "pnpm build && pnpm --filter @dsh-supply/dsh-integration test",
+    "typecheck": "pnpm build && pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@deepseek-ai/dsh-subprocess-local",
+      "esbuild",
+      "koffi",
+      "node-pty"
+    ]
+  }
+}

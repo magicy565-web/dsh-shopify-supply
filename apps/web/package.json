@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-supply/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "next start -p 3000"
+  },
+  "dependencies": {
+    "@dsh-supply/agent-contracts": "workspace:*",
+    "@dsh-supply/catalog": "workspace:*",
+    "@dsh-supply/procurement": "workspace:*",
+    "next": "^15.5.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "typescript": "^5.7.3"
+  }
+}

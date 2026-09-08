@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-supply/runtime-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./suite": "./src/suite.ts"
+  },
+  "scripts": {
+    "test": "tsx --test src/in-memory.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@dsh-supply/agent-contracts": "workspace:*",
+    "@dsh-supply/agent-runtime": "workspace:*",
+    "@dsh-supply/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

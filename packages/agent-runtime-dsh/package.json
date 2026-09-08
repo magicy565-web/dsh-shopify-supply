@@ -1,0 +1,29 @@
+{
+  "name": "@dsh-supply/agent-runtime-dsh",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-sdk-protocol": "0.1.0-rc.6",
+    "@dsh-supply/agent-contracts": "workspace:*",
+    "@dsh-supply/agent-runtime": "workspace:*",
+    "@dsh-supply/config": "workspace:*",
+    "@dsh-supply/dsh-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  }
+}

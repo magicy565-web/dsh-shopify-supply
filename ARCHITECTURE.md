@@ -85,8 +85,10 @@ Plugins must not contain SQL, Prisma, catalog rules, or Shopify business state.
 
 Official TypeScript SDK currently has no client→server approval RPC and no mid-turn cancel.
 
-- Approval: `dsh-plugin-policy` is the terminal `approval/request` answerer and waits on a localhost bridge inside `DeepSeekHarnessRuntime`. Product `approve()` resolves that wait into Harness `allowed-once` / `rejected`.
-- Abort: close the runtime process for that session. When Harness adds prompt-cancel, only `agent-runtime-dsh` changes.
+- Approval: `dsh-plugin-policy` is the terminal `approval/request` answerer and waits on a localhost bridge inside `DeepSeekHarnessRuntime`. Product `approve()` resolves that wait into Harness `allowed-once` / `rejected`. The bridge is keyed by approval/call id (not a single slot per session) and fail-closes on TTL. Plugin ↔ gateway/bridge calls carry `AGENT_INTERNAL_TOKEN`.
+- Abort: close the runtime process for that session. The next `sendMessage` auto-resumes; `POST /v1/sessions/:id/resume` remains available. When Harness adds prompt-cancel, only `agent-runtime-dsh` changes.
+- Close: `POST /v1/sessions/:id/close` tears down the session. Idle DSH subprocesses are recycled after `AGENT_SESSION_IDLE_TTL_MS` and revived on the next turn.
+- Writes: gateway honors `Idempotency-Key` (plugins send the tool call id) so model retries do not create duplicate cases or orders.
 
 ## Upgrade gate
 

@@ -16,3 +16,13 @@ export interface AgentRuntime {
   getSession(sessionId: string): Promise<SessionState>
   close(sessionId: string): Promise<void>
 }
+
+export type MemoryToolHandler = (
+  args: Record<string, unknown>,
+  ctx: { signal: AbortSignal; toolCallId: string },
+) => Promise<unknown>
+
+export type InMemoryAgentRuntimeOptions = {
+  approvalTtlMs?: number
+  tools?: Record<string, MemoryToolHandler>
+}

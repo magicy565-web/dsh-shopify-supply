@@ -31,8 +31,13 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-agent-check/types/**/*.ts",
+    ".next-agent-ux-check/types/**/*.ts",
+    ".next-campaign-check/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
+    ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next/types/**/*.ts"
+    ".next-ux-check/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

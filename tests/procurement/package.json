@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsx --test src/procurement.test.ts src/closed-loop.test.ts",
+    "test": "tsx --test src/procurement.test.ts src/closed-loop.test.ts src/session-hardening.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@dsh-supply/agent-contracts": "workspace:*",
     "@dsh-supply/agent-gateway": "workspace:*",
     "@dsh-supply/agent-runtime": "workspace:*",
     "@dsh-supply/catalog": "workspace:*",

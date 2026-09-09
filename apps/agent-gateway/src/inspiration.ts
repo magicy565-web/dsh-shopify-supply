@@ -9,8 +9,18 @@ export type InspirationProject = {
 }
 export type InspirationComment = { id: string; projectId: string; text: string; date: string; author: string }
 export type InspirationSnapshot = { projects: InspirationProject[]; saved: Record<string, string[]>; following: Record<string, string[]>; comments: InspirationComment[] }
-export class InspirationNotFoundError extends Error {}
-export class InspirationInputError extends Error {}
+export class InspirationNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InspirationNotFoundError'
+  }
+}
+export class InspirationInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InspirationInputError'
+  }
+}
 
 const empty = (): InspirationSnapshot => ({ projects: [], saved: {}, following: {}, comments: [] })
 const clean = (value: unknown, max = 6000) => typeof value === 'string' ? value.trim().slice(0, max) : ''

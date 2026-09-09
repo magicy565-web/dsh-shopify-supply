@@ -1,34 +1,40 @@
 import { randomUUID } from 'node:crypto'
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentSession,
-  ApprovalDecision,
-  CreateSessionInput,
-  SessionState,
-  SessionStatus,
+import {
+  AgentError,
+  type AgentErrorCode,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentSession,
+  type ApprovalDecision,
+  type CreateSessionInput,
+  type SessionState,
+  type SessionStatus,
 } from '@dsh-supply/agent-contracts'
 import {
   ASK_TOOL_NAMES,
   DEV_TOOL_NAMES,
   DSH_TOOL_NAMES,
   ECHO_THROW_TOKEN,
+  agentApprovalTimeoutMs,
 } from '@dsh-supply/config'
-import type { AgentRuntime } from './types.js'
+import type { AgentRuntime, InMemoryAgentRuntimeOptions, MemoryToolHandler } from './types.js'
 
 type PendingApproval = {
   approvalId: string
   toolName: string
   toolCallId: string
-  resolve: (decision: ApprovalDecision) => void
+  arguments?: unknown
+  timer?: ReturnType<typeof setTimeout>
+  resolve: (decision: ApprovalDecision | 'timeout') => void
 }
 
 type MemorySession = {
   id: string
   createdAt: string
   status: SessionStatus
-  pending?: PendingApproval
+  pending: Map<string, PendingApproval>
   abort: AbortController
+  busy: boolean
 }
 
 function now(): string {
@@ -39,10 +45,36 @@ function eventBase(sessionId: string) {
   return { sessionId, ts: now() }
 }
 
+function failed(
+  sessionId: string,
+  code: AgentErrorCode,
+  message: string,
+): AgentEvent {
+  return { ...eventBase(sessionId), type: 'agent.failed', message, code }
+}
+
 function parseCall(text: string): { toolName: string; arg: string } | undefined {
   const match = /^(?:CALL|call)\s+(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim())
   if (!match) return undefined
   return { toolName: match[1] ?? '', arg: (match[2] ?? '').trim() }
+}
+
+function parseArgs(arg: string): Record<string, unknown> {
+  if (!arg) return {}
+  if (arg.startsWith('{') || arg.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(arg) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+      return { value: parsed }
+    } catch {
+      return { text: arg }
+    }
+  }
+  return { text: arg }
+}
+
+function pendingIds(session: MemorySession): string[] {
+  return [...session.pending.keys()]
 }
 
 /**
@@ -51,6 +83,17 @@ function parseCall(text: string): { toolName: string; arg: string } | undefined 
  */
 export class InMemoryAgentRuntime implements AgentRuntime {
   private readonly sessions = new Map<string, MemorySession>()
+  private readonly approvalTtlMs: number
+  private readonly tools = new Map<string, MemoryToolHandler>()
+
+  constructor(options: InMemoryAgentRuntimeOptions = {}) {
+    this.approvalTtlMs = options.approvalTtlMs ?? agentApprovalTimeoutMs()
+    if (options.tools) this.registerTools(options.tools)
+  }
+
+  registerTools(tools: Record<string, MemoryToolHandler>): void {
+    for (const [name, handler] of Object.entries(tools)) this.tools.set(name, handler)
+  }
 
   async createSession(input: CreateSessionInput = {}): Promise<AgentSession> {
     const id = input.id ?? `session-${randomUUID()}`
@@ -63,18 +106,22 @@ export class InMemoryAgentRuntime implements AgentRuntime {
       id,
       createdAt,
       status: 'idle',
+      pending: new Map(),
       abort: new AbortController(),
+      busy: false,
     })
     return { id, createdAt }
   }
 
   async getSession(sessionId: string): Promise<SessionState> {
     const session = this.require(sessionId)
+    const ids = pendingIds(session)
     return {
       id: session.id,
       status: session.status,
-      pendingApprovalId: session.pending?.approvalId,
-      tools: [...DSH_TOOL_NAMES],
+      pendingApprovalId: ids[0],
+      pendingApprovalIds: ids,
+      tools: [...new Set([...DSH_TOOL_NAMES, ...this.tools.keys()])],
     }
   }
 
@@ -84,9 +131,9 @@ export class InMemoryAgentRuntime implements AgentRuntime {
     decision: ApprovalDecision,
   ): Promise<void> {
     const session = this.require(sessionId)
-    const pending = session.pending
-    if (!pending || pending.approvalId !== approvalId) {
-      throw new Error(`no pending approval ${approvalId} on ${sessionId}`)
+    const pending = session.pending.get(approvalId)
+    if (!pending) {
+      throw new AgentError('approval.unknown', `no pending approval ${approvalId} on ${sessionId}`)
     }
     pending.resolve(decision)
   }
@@ -95,37 +142,42 @@ export class InMemoryAgentRuntime implements AgentRuntime {
     const session = this.require(sessionId)
     session.status = 'aborted'
     session.abort.abort()
-    if (session.pending) session.pending.resolve('deny')
+    this.rejectAll(session, 'deny')
   }
 
   async resume(sessionId: string): Promise<void> {
     const session = this.require(sessionId)
     if (session.status === 'closed') {
-      throw new Error(`session ${sessionId} is closed`)
+      throw new AgentError('session.closed', `session ${sessionId} is closed`)
     }
+    if (session.status !== 'aborted') return
     session.abort = new AbortController()
     session.status = 'idle'
-    session.pending = undefined
+    this.rejectAll(session, 'timeout')
   }
 
   async close(sessionId: string): Promise<void> {
     const session = this.require(sessionId)
     session.abort.abort()
-    if (session.pending) session.pending.resolve('deny')
+    this.rejectAll(session, 'deny')
     session.status = 'closed'
-    session.pending = undefined
+    session.busy = false
   }
 
   async *sendMessage(sessionId: string, message: AgentMessage): AsyncIterable<AgentEvent> {
     const session = this.require(sessionId)
-    if (session.status === 'closed' || session.status === 'aborted') {
-      yield {
-        ...eventBase(sessionId),
-        type: 'agent.failed',
-        message: `session is ${session.status}`,
-      }
+    if (session.status === 'closed') {
+      yield failed(sessionId, 'session.closed', `session is closed`)
       return
     }
+    if (session.busy) {
+      yield failed(sessionId, 'session.busy', `session ${sessionId} is already running`)
+      return
+    }
+    if (session.status === 'aborted') {
+      await this.resume(sessionId)
+    }
+    session.busy = true
     session.status = 'running'
     session.abort = new AbortController()
 
@@ -141,15 +193,21 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         return
       }
       yield { ...eventBase(sessionId), type: 'message.delta', text: `echo: ${message.text}` }
-      session.status = 'idle'
+      this.settleIdle(session)
       yield { ...eventBase(sessionId), type: 'agent.completed' }
     } catch (error) {
-      session.status = 'idle'
+      this.settleIdle(session)
+      if (error instanceof AgentError) {
+        yield failed(sessionId, error.code, error.message)
+        return
+      }
       yield {
         ...eventBase(sessionId),
         type: 'agent.failed',
         message: error instanceof Error ? error.message : String(error),
       }
+    } finally {
+      session.busy = false
     }
   }
 
@@ -160,12 +218,14 @@ export class InMemoryAgentRuntime implements AgentRuntime {
   ): AsyncIterable<AgentEvent> {
     const sessionId = session.id
     const toolCallId = `call-${randomUUID()}`
+    const handler = this.tools.get(toolName)
+    const toolArguments = handler ? parseArgs(arg) : { text: arg }
     yield {
       ...eventBase(sessionId),
       type: 'tool.started',
       toolCallId,
       toolName,
-      arguments: { text: arg },
+      arguments: toolArguments,
     }
 
     if (session.abort.signal.aborted) {
@@ -173,7 +233,8 @@ export class InMemoryAgentRuntime implements AgentRuntime {
       return
     }
 
-    if (!(DEV_TOOL_NAMES as readonly string[]).includes(toolName)) {
+    const known = Boolean(handler) || (DEV_TOOL_NAMES as readonly string[]).includes(toolName)
+    if (!known) {
       yield {
         ...eventBase(sessionId),
         type: 'tool.completed',
@@ -182,7 +243,7 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         isError: true,
         result: { error: `unknown tool ${toolName}` },
       }
-      session.status = 'idle'
+      this.settleIdle(session)
       yield { ...eventBase(sessionId), type: 'agent.completed' }
       return
     }
@@ -193,6 +254,7 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         approvalId,
         toolName,
         toolCallId,
+        arguments: toolArguments,
       })
       yield {
         ...eventBase(sessionId),
@@ -201,14 +263,16 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         toolName,
         toolCallId,
         reason: `${toolName} requires operator approval`,
+        arguments: toolArguments,
       }
       const decision = await decisionPromise
+      const outcome = decision === 'allow' ? 'allowed-once' : decision === 'timeout' ? 'cancelled' : 'rejected'
       yield {
         ...eventBase(sessionId),
         type: 'approval.resolved',
         approvalId,
-        decision,
-        outcome: decision === 'allow' ? 'allowed-once' : 'rejected',
+        decision: decision === 'allow' ? 'allow' : 'deny',
+        outcome,
       }
       if (decision !== 'allow' || session.abort.signal.aborted) {
         yield {
@@ -217,14 +281,48 @@ export class InMemoryAgentRuntime implements AgentRuntime {
           toolCallId,
           toolName,
           isError: true,
-          result: { error: 'denied' },
+          result: { error: decision === 'timeout' ? 'approval expired' : 'denied' },
         }
-        session.status = session.abort.signal.aborted ? 'aborted' : 'idle'
+        if (session.abort.signal.aborted) session.status = 'aborted'
+        else this.settleIdle(session)
         if (session.status === 'idle') {
           yield { ...eventBase(sessionId), type: 'agent.completed' }
         }
         return
       }
+    }
+
+    if (handler) {
+      try {
+        if (session.abort.signal.aborted) {
+          session.status = 'aborted'
+          return
+        }
+        const result = await handler(toolArguments, { signal: session.abort.signal, toolCallId })
+        yield {
+          ...eventBase(sessionId),
+          type: 'tool.completed',
+          toolCallId,
+          toolName,
+          isError: false,
+          result,
+        }
+      } catch (error) {
+        yield {
+          ...eventBase(sessionId),
+          type: 'tool.completed',
+          toolCallId,
+          toolName,
+          isError: true,
+          result: { error: error instanceof Error ? error.message : String(error) },
+        }
+      }
+      this.settleIdle(session)
+      yield { ...eventBase(sessionId), type: 'agent.completed' }
+      return
+    }
+
+    if ((ASK_TOOL_NAMES as readonly string[]).includes(toolName)) {
       yield {
         ...eventBase(sessionId),
         type: 'tool.completed',
@@ -233,7 +331,7 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         isError: false,
         result: { ok: true, action: toolName },
       }
-      session.status = 'idle'
+      this.settleIdle(session)
       yield { ...eventBase(sessionId), type: 'agent.completed' }
       return
     }
@@ -247,7 +345,7 @@ export class InMemoryAgentRuntime implements AgentRuntime {
         isError: true,
         result: { error: 'echo forced failure' },
       }
-      session.status = 'idle'
+      this.settleIdle(session)
       yield { ...eventBase(sessionId), type: 'agent.completed' }
       return
     }
@@ -265,30 +363,47 @@ export class InMemoryAgentRuntime implements AgentRuntime {
       isError: false,
       result,
     }
-    session.status = 'idle'
+    this.settleIdle(session)
     yield { ...eventBase(sessionId), type: 'agent.completed' }
   }
 
   private beginApproval(
     session: MemorySession,
-    pending: Omit<PendingApproval, 'resolve'>,
-  ): Promise<ApprovalDecision> {
+    pending: Omit<PendingApproval, 'resolve' | 'timer'>,
+  ): Promise<ApprovalDecision | 'timeout'> {
     session.status = 'waiting_approval'
     return new Promise((resolve) => {
-      session.pending = {
+      const entry: PendingApproval = {
         ...pending,
         resolve: (decision) => {
-          session.pending = undefined
-          if (session.status === 'waiting_approval') session.status = 'running'
+          if (entry.timer) clearTimeout(entry.timer)
+          session.pending.delete(pending.approvalId)
+          if (session.status === 'waiting_approval' && session.pending.size === 0) {
+            session.status = 'running'
+          }
           resolve(decision)
         },
       }
+      if (this.approvalTtlMs > 0) {
+        entry.timer = setTimeout(() => entry.resolve('timeout'), this.approvalTtlMs)
+        entry.timer.unref()
+      }
+      session.pending.set(pending.approvalId, entry)
     })
+  }
+
+  private settleIdle(session: MemorySession): void {
+    if (session.status === 'aborted' || session.status === 'closed') return
+    session.status = 'idle'
+  }
+
+  private rejectAll(session: MemorySession, decision: ApprovalDecision | 'timeout'): void {
+    for (const pending of [...session.pending.values()]) pending.resolve(decision)
   }
 
   private require(sessionId: string): MemorySession {
     const session = this.sessions.get(sessionId)
-    if (!session) throw new Error(`unknown session ${sessionId}`)
+    if (!session) throw new AgentError('session.unknown', `unknown session ${sessionId}`)
     return session
   }
 }

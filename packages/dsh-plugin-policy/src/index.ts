@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { ASK_TOOL_NAMES } from '@dsh-supply/config'
+import { ASK_TOOL_NAMES, agentApprovalTimeoutMs, agentInternalHeaders } from '@dsh-supply/config'
 
 export const name = 'dsh-supply-policy'
 export const inject = ['tools', 'approval']
@@ -31,6 +31,15 @@ function sessionIdOf(value: { agent?: { session?: { id?: unknown } } }): string 
   return typeof id === 'string' && id.length > 0 ? id : undefined
 }
 
+function waitSignal(signal?: AbortSignal): AbortSignal | undefined {
+  const timeoutMs = agentApprovalTimeoutMs()
+  const timeout = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs + 1000) : undefined
+  const parts = [signal, timeout].filter((value): value is AbortSignal => value !== undefined)
+  if (parts.length === 0) return undefined
+  if (parts.length === 1) return parts[0]
+  return AbortSignal.any(parts)
+}
+
 async function waitForProductDecision(req: ApprovalReq): Promise<ApprovalOutcome> {
   const base = process.env.AGENT_APPROVAL_BRIDGE_URL
   if (!base) return 'unavailable'
@@ -46,9 +55,9 @@ async function waitForProductDecision(req: ApprovalReq): Promise<ApprovalOutcome
   try {
     const response = await fetch(`${base.replace(/\/$/, '')}/wait`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: agentInternalHeaders(),
       body: JSON.stringify(body),
-      signal: req.signal,
+      signal: waitSignal(req.signal),
     })
     if (!response.ok) return 'unavailable'
     const json = (await response.json()) as { outcome?: string }

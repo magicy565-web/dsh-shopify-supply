@@ -19,11 +19,13 @@
     "db:migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@dsh-supply/launch": "workspace:*",
     "@dsh-supply/agent-contracts": "workspace:*",
     "@dsh-supply/agent-runtime": "workspace:*",
     "@dsh-supply/agent-runtime-dsh": "workspace:*",
     "@dsh-supply/catalog": "workspace:*",
     "@dsh-supply/commerce": "workspace:*",
+    "@dsh-supply/community": "workspace:*",
     "@dsh-supply/config": "workspace:*",
     "@dsh-supply/procurement": "workspace:*",
     "@dsh-supply/storage-postgres": "workspace:*",

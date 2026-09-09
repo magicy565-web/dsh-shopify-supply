@@ -66,6 +66,8 @@ The procurement workspace loads the private catalog independently of the Agent p
 - `POST /v1/commerce/shopify/webhooks/orders-create` — ingest a Shopify order payload
 - `POST /v1/commerce/orders/:id/purchase-orders/:poId/confirm` — confirm a supplier PO
 - `POST /v1/commerce/orders/:id/purchase-orders/:poId/ship` — write tracking back through the Shopify adapter
+- `POST /v1/sessions/:id/close` — close a session and recycle its runtime process
+- `Idempotency-Key` on sourcing/commerce writes — replay the original result for the same key and body
 
 Catalog tools exposed to the real Harness are `search_catalog`, `get_product`, and `compare_offers`. Procurement write tools are `create_sourcing_case`, `add_sourcing_candidate`, `draft_quote_request`, and `approve_quote_request`. Commerce tools are `list_listings`, `get_sales_order`, `create_dropship_listing`, `simulate_shopify_order`, `confirm_purchase_order`, and `ship_purchase_order`. They call the product-owned API and do not read business storage or Shopify credentials directly. Write tools require operator approval.
 

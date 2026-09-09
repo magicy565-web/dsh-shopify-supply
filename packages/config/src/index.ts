@@ -33,12 +33,14 @@ export const COMMERCE_READ_TOOL_NAMES = [
   'get_sales_order',
 ] as const
 
-export const COMMERCE_WRITE_TOOL_NAMES = [
-  'create_dropship_listing',
-  'simulate_shopify_order',
-  'confirm_purchase_order',
-  'ship_purchase_order',
+export const LAUNCH_TOOL_NAMES = [
+  'search_public_web',
+  'get_launch_run',
+  'write_campaign_draft',
+  'record_launch_stage',
 ] as const
+
+export const COMMERCE_WRITE_TOOL_NAMES = ['create_dropship_listing', 'simulate_shopify_order', 'confirm_purchase_order', 'ship_purchase_order'] as const
 
 export const DSH_TOOL_NAMES = [
   ...DEV_TOOL_NAMES,
@@ -46,15 +48,58 @@ export const DSH_TOOL_NAMES = [
   ...PROCUREMENT_TOOL_NAMES,
   ...COMMERCE_READ_TOOL_NAMES,
   ...COMMERCE_WRITE_TOOL_NAMES,
+  ...LAUNCH_TOOL_NAMES,
 ] as const
 
 export const ASK_TOOL_NAMES = [
   'dangerous_test_action',
   ...PROCUREMENT_TOOL_NAMES,
   ...COMMERCE_WRITE_TOOL_NAMES,
+  'write_campaign_draft',
 ] as const
 
 export const ECHO_THROW_TOKEN = '__THROW__'
+
+export const AGENT_INTERNAL_TOKEN_ENV = 'AGENT_INTERNAL_TOKEN'
+export const DEFAULT_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000
+export const DEFAULT_SESSION_IDLE_TTL_MS = 15 * 60 * 1000
+
+export function agentApprovalTimeoutMs(): number {
+  return readMsEnv('AGENT_APPROVAL_TIMEOUT_MS', DEFAULT_APPROVAL_TIMEOUT_MS)
+}
+
+export function agentSessionIdleTtlMs(): number {
+  return readMsEnv('AGENT_SESSION_IDLE_TTL_MS', DEFAULT_SESSION_IDLE_TTL_MS)
+}
+
+export function agentGatewayBaseUrl(): string {
+  return (process.env.CATALOG_API_URL ?? `http://127.0.0.1:${process.env.AGENT_GATEWAY_PORT ?? '8787'}`).replace(/\/$/, '')
+}
+
+export function agentInternalHeaders(idempotencyKey?: string): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const token = process.env[AGENT_INTERNAL_TOKEN_ENV]
+  if (token) {
+    headers.authorization = `Bearer ${token}`
+    headers['x-dsh-plugin'] = '1'
+  }
+  if (idempotencyKey) headers['idempotency-key'] = idempotencyKey
+  return headers
+}
+
+export function toolCallIdOf(exec: { callId?: string; id?: string; toolCallId?: string }): string | undefined {
+  for (const value of [exec.callId, exec.id, exec.toolCallId]) {
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return undefined
+}
+
+function readMsEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return fallback
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
 
 export function findWorkspaceRoot(start = process.cwd()): string {
   let dir = start

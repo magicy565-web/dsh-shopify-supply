@@ -1,0 +1,14 @@
+{
+  "passed": [
+    "Responsive light/dark layouts at 390, 768, 1440",
+    "Keyboard focus, offscreen pause and reduced motion",
+    "Image load failure keeps hero action and reserved geometry",
+    "Slow image preserves layout, then fades in",
+    "Confirmed collection feedback, failure and empty search",
+    "Studio validation focus, step navigation, saved draft and failed save",
+    "Agent six states and completion animation does not replay on polling",
+    "Log follows bottom, preserves history position, and jumps to latest",
+    "Recorded core-ux-demo.webm at 1440×900 with visible isolated-data label"
+  ],
+  "date": "2026-09-09T02:38:18.616Z"
+}

@@ -1,15 +1,19 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { agentGatewayBaseUrl, agentInternalHeaders, toolCallIdOf } from '@dsh-supply/config'
 
 export const name = 'dsh-supply-commerce-tools'
 export const inject = ['tools']
 
-function base(): string {
-  return (process.env.CATALOG_API_URL ?? `http://127.0.0.1:${process.env.AGENT_GATEWAY_PORT ?? '8787'}`).replace(/\/$/, '')
-}
+type Exec = { signal: AbortSignal; callId?: string; id?: string; toolCallId?: string }
 
-async function api(path: string, init: RequestInit): Promise<JsonValue> {
-  const response = await fetch(`${base()}${path}`, init)
+async function api(path: string, init: RequestInit, exec?: Exec): Promise<JsonValue> {
+  const response = await fetch(`${agentGatewayBaseUrl()}${path}`, {
+    ...init,
+    headers: {
+      ...agentInternalHeaders(exec ? toolCallIdOf(exec) : undefined),
+    },
+  })
   const value = await response.json() as JsonValue
   if (!response.ok) {
     const message = typeof value === 'object' && value !== null && !Array.isArray(value) && 'error' in value
@@ -60,10 +64,9 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       return api('/v1/commerce/listings', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(args),
         signal: exec.signal,
-      })
+      }, exec)
     },
   }))
 
@@ -79,10 +82,9 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       return api('/v1/commerce/orders/simulate', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(args),
         signal: exec.signal,
-      })
+      }, exec)
     },
   }))
 
@@ -97,10 +99,9 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       return api(`/v1/commerce/orders/${encodeURIComponent(args.orderId)}/purchase-orders/${encodeURIComponent(args.purchaseOrderId)}/confirm`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: '{}',
         signal: exec.signal,
-      })
+      }, exec)
     },
   }))
 
@@ -117,13 +118,12 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       return api(`/v1/commerce/orders/${encodeURIComponent(args.orderId)}/purchase-orders/${encodeURIComponent(args.purchaseOrderId)}/ship`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           trackingNumber: args.trackingNumber,
           trackingCompany: args.trackingCompany,
         }),
         signal: exec.signal,
-      })
+      }, exec)
     },
   }))
 }

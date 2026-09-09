@@ -3,10 +3,18 @@ node_modules/
 .pnpm-store/
 dist/
 .next/
+.next-verify/
+.next-campaign-check/
+.next-agent-check/
+.next-ux-check/
 .turbo/
 .dsh-home/
 apps/dsh-runtime/.generated/
 data/catalog.json
+data/launch.json
+data/community.json
+data/uploads/
+pnpm-lock.agent-backup.yaml
 data/procurement.json
 data/*.tmp
 .env
@@ -16,3 +24,5 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 apps/web/next-env.d.ts
+
+.next-agent-ux-check/

@@ -1,10 +1,11 @@
 import { createServer } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { InMemoryAgentRuntime, type AgentRuntime } from '@dsh-supply/agent-runtime'
 import { DeepSeekHarnessRuntime } from '@dsh-supply/agent-runtime-dsh'
 import { CatalogService, JsonCatalogRepository } from '@dsh-supply/catalog'
-import { findWorkspaceRoot } from '@dsh-supply/config'
+import { AGENT_INTERNAL_TOKEN_ENV, findWorkspaceRoot } from '@dsh-supply/config'
 import {
   CommerceService,
   createShopifyStore,
@@ -17,15 +18,20 @@ import {
   PostgresCommerceRepository,
   PostgresProcurementRepository,
 } from '@dsh-supply/storage-postgres'
+import { CommunityService, JsonCommunityRepository } from '@dsh-supply/community'
 import { createGatewayApp } from './app.js'
 import { InspirationService } from './inspiration.js'
+import { LaunchService, JsonLaunchRepository } from '@dsh-supply/launch'
 
 const workspaceRoot = findWorkspaceRoot()
 loadEnv({ path: join(workspaceRoot, '.env') })
 
+const internalToken = process.env[AGENT_INTERNAL_TOKEN_ENV] || randomUUID()
+process.env[AGENT_INTERNAL_TOKEN_ENV] = internalToken
+
 function createRuntime(): AgentRuntime {
-  const kind = (process.env.AGENT_RUNTIME ?? 'in-memory').toLowerCase()
-  if (kind === 'dsh' || kind === 'deepseek') return new DeepSeekHarnessRuntime()
+  const kind = (process.env.AGENT_RUNTIME ?? 'dsh').toLowerCase()
+  if (kind === 'dsh' || kind === 'deepseek') return new DeepSeekHarnessRuntime({ internalToken })
   return new InMemoryAgentRuntime()
 }
 
@@ -44,6 +50,15 @@ const commerceRepository = database
   : new JsonCommerceRepository(process.env.COMMERCE_DATA_FILE || join(workspaceRoot, 'data', 'commerce.json'))
 const commerce = new CommerceService(commerceRepository, catalog, procurement, createShopifyStore())
 const inspiration = new InspirationService(process.env.INSPIRATION_DATA_FILE || join(workspaceRoot, 'data', 'inspiration.json'))
+const community = new CommunityService(
+  new JsonCommunityRepository(process.env.COMMUNITY_DATA_FILE || join(workspaceRoot, 'data', 'community.json')),
+  process.env.COMMUNITY_MEDIA_DIR || join(workspaceRoot, 'data', 'uploads'),
+  {
+    email: process.env.COMMUNITY_ADMIN_EMAIL,
+    password: process.env.COMMUNITY_ADMIN_PASSWORD,
+    name: process.env.COMMUNITY_ADMIN_NAME,
+  },
+)
 const origin = process.env.WEB_ORIGIN ?? 'http://127.0.0.1:3000'
 const port = Number(process.env.AGENT_GATEWAY_PORT ?? 8787)
 const app = createGatewayApp({
@@ -52,10 +67,13 @@ const app = createGatewayApp({
   procurement,
   commerce,
   inspiration,
+  community,
   storage: database ? 'postgres' : 'json',
   origin,
   catalogImportEnabled: process.env.CATALOG_IMPORT_ENABLED === 'true',
-  runtimeKind: process.env.AGENT_RUNTIME ?? 'in-memory',
+  runtimeKind: process.env.AGENT_RUNTIME ?? 'dsh',
+  internalToken,
+  launch: new LaunchService(new JsonLaunchRepository(process.env.LAUNCH_DATA_FILE || join(workspaceRoot, 'data', 'launch.json'))),
 })
 
 const server = createServer((req, res) => {

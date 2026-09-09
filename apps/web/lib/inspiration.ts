@@ -1,6 +1,8 @@
 export const categories = ['全部灵感', '产品设计', '智能硬件', '家居生活', '户外装备', '可持续设计', '生活方式'] as const
 export const stages = ['概念探索', '原型开发', '寻找合作', '准备发布'] as const
 export type Project = {
+  campaign?: import('./campaign').CampaignContent;
+  ownerId?: string;
   id: string; name: string; tagline: string; category: string; stage: string; creator: string; city: string; image: string;
   story: string; highlights: string[]; needs: string[]; supporters: number; goal: number; date: string;
   updates: Array<{ date: string; title: string; body: string }>; demo: boolean;
@@ -24,11 +26,21 @@ export const LOCAL_SAVED = 'supply.inspiration.saved.v1'
 export const LOCAL_FOLLOWING = 'supply.inspiration.following.v1'
 export const LOCAL_DRAFT = 'supply.inspiration.draft.v1'
 
-export function safeImage(value: unknown): value is string { return typeof value === 'string' && (/^\/inspiration\/(relight|field|roam|slow)\.png$/.test(value) || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value)) }
+export function safeImage(value: unknown): value is string {
+  return typeof value === 'string' && (
+    /^\/inspiration\/(relight|field|roam|slow)\.png$/.test(value)
+    || /^\/media\/m-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
+  )
+}
 export function isProject(value: unknown): value is Project {
   if (!value || typeof value !== 'object') return false
   const p = value as Project
-  return typeof p.id === 'string' && p.id.startsWith('local-') && typeof p.name === 'string' && typeof p.tagline === 'string' && typeof p.creator === 'string' && typeof p.city === 'string' && typeof p.story === 'string' && typeof p.date === 'string' && categories.some(c => c === p.category) && stages.some(s => s === p.stage) && safeImage(p.image) && Array.isArray(p.highlights) && p.highlights.every(s => typeof s === 'string') && Array.isArray(p.needs) && p.needs.every(s => typeof s === 'string') && Array.isArray(p.updates) && p.updates.every(u => typeof u?.date === 'string' && typeof u.title === 'string' && typeof u.body === 'string') && Number.isSafeInteger(p.goal) && p.goal > 0 && Number.isSafeInteger(p.supporters) && p.supporters >= 0 && p.demo === false
+  if (p.campaign !== undefined) {
+    const c = p.campaign
+    if (!c || typeof c !== 'object' || !Array.isArray(c.gallery) || !c.gallery.every(safeImage) || !['video','audience','milestones','participation','team','risks'].every(key => typeof c[key as keyof typeof c] === 'string')) return false
+  }
+  return typeof p.id === 'string' && (/^(local-|p-)/.test(p.id) || p.demo === true) && typeof p.name === 'string' && typeof p.tagline === 'string' && typeof p.creator === 'string' && typeof p.city === 'string' && typeof p.story === 'string' && typeof p.date === 'string' && categories.some(c => c === p.category) && stages.some(s => s === p.stage) && safeImage(p.image) && Array.isArray(p.highlights) && p.highlights.every(s => typeof s === 'string') && Array.isArray(p.needs) && p.needs.every(s => typeof s === 'string') && Array.isArray(p.updates) && p.updates.every(u => typeof u?.date === 'string' && typeof u.title === 'string' && typeof u.body === 'string') && Number.isSafeInteger(p.goal) && p.goal > 0 && Number.isSafeInteger(p.supporters) && p.supporters >= 0 && typeof p.demo === 'boolean'
 }
 export function draftProject(draft: Draft, existing?: Project): Project {
   return {
@@ -66,3 +78,5 @@ export function workspaceHref(project: Pick<Project, 'id' | 'name' | 'needs'>) {
   return `/workspace?${params.toString()}`
 }
 export function creatorHref(name: string) { return `#creator/${encodeURIComponent(name)}` }
+export function projectHref(id: string) { return `#project/${id}` }
+export function sharePath(id: string) { return `/p/${id}` }

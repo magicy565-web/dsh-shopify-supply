@@ -154,6 +154,7 @@ export function mapSessionEvent(
     const toolName = String(data.toolName ?? 'unknown')
     const toolCallId = typeof data.callId === 'string' ? data.callId : undefined
     const reason = typeof data.reason === 'string' ? data.reason : undefined
+    const args = data.arguments ?? data.args
     return [{
       ...stamp,
       type: 'approval.requested',
@@ -161,6 +162,7 @@ export function mapSessionEvent(
       toolName,
       toolCallId,
       reason,
+      ...(args !== undefined ? { arguments: args } : {}),
     }]
   }
 

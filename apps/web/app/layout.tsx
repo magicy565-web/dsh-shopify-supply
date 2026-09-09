@@ -2,6 +2,11 @@ import type { ReactNode } from 'react'
 import './tokens.css'
 import './globals.css'
 import './inspiration.css'
+import './studio.css'
+import './campaign.css'
+import './workspace-design.css'
+import './agent-runtime.css'
+import './visual-effects.css'
 
 export const metadata = {
   title: 'Supply 灵感 — 好想法，值得发生',

@@ -23,7 +23,35 @@ export type SessionState = {
   id: string
   status: SessionStatus
   pendingApprovalId?: string
+  pendingApprovalIds?: string[]
   tools: string[]
+}
+
+export const AGENT_ERROR_CODES = [
+  'session.unknown',
+  'session.closed',
+  'session.aborted',
+  'session.busy',
+  'approval.unknown',
+  'approval.expired',
+  'auth.unauthorized',
+  'idempotency.conflict',
+] as const
+
+export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number]
+
+export class AgentError extends Error {
+  readonly code: AgentErrorCode
+
+  constructor(code: AgentErrorCode, message: string) {
+    super(message)
+    this.name = 'AgentError'
+    this.code = code
+  }
+}
+
+export function isAgentError(error: unknown): error is AgentError {
+  return error instanceof AgentError
 }
 
 export type ApprovalDecision = 'allow' | 'deny'
@@ -59,6 +87,7 @@ export type ApprovalRequestedEvent = EventBase & {
   toolName: string
   toolCallId?: string
   reason?: string
+  arguments?: unknown
 }
 
 export type ApprovalResolvedEvent = EventBase & {
@@ -75,6 +104,7 @@ export type AgentCompletedEvent = EventBase & {
 export type AgentFailedEvent = EventBase & {
   type: 'agent.failed'
   message: string
+  code?: AgentErrorCode
 }
 
 export type AgentEvent =

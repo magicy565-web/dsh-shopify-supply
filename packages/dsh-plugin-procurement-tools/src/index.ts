@@ -1,19 +1,18 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { agentGatewayBaseUrl, agentInternalHeaders, toolCallIdOf } from '@dsh-supply/config'
 
 export const name = 'dsh-supply-procurement-tools'
 export const inject = ['tools']
 
-function base(): string {
-  return (process.env.CATALOG_API_URL ?? `http://127.0.0.1:${process.env.AGENT_GATEWAY_PORT ?? '8787'}`).replace(/\/$/, '')
-}
+type Exec = { signal: AbortSignal; callId?: string; id?: string; toolCallId?: string }
 
-async function post(path: string, body: unknown, signal: AbortSignal): Promise<JsonValue> {
-  const response = await fetch(`${base()}${path}`, {
+async function post(path: string, body: unknown, exec: Exec): Promise<JsonValue> {
+  const response = await fetch(`${agentGatewayBaseUrl()}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: agentInternalHeaders(toolCallIdOf(exec)),
     body: JSON.stringify(body),
-    signal,
+    signal: exec.signal,
   })
   const value = await response.json() as JsonValue
   if (!response.ok) {
@@ -44,7 +43,7 @@ export function apply(ctx: Context): void {
     },
     output: jsonOutput,
     async execute(args, exec) {
-      return post('/v1/sourcing/cases', args, exec.signal)
+      return post('/v1/sourcing/cases', args, exec)
     },
   }))
 
@@ -61,7 +60,7 @@ export function apply(ctx: Context): void {
       return post(`/v1/sourcing/cases/${encodeURIComponent(args.caseId)}/candidates`, {
         productId: args.productId,
         rationale: args.rationale,
-      }, exec.signal)
+      }, exec)
     },
   }))
 
@@ -80,7 +79,7 @@ export function apply(ctx: Context): void {
         supplierId: args.supplierId,
         offerIds: args.offerIds,
         quantity: args.quantity,
-      }, exec.signal)
+      }, exec)
     },
   }))
 
@@ -95,9 +94,9 @@ export function apply(ctx: Context): void {
     output: jsonOutput,
     async execute(args, exec) {
       return post(`/v1/sourcing/cases/${encodeURIComponent(args.caseId)}/quote-requests/${encodeURIComponent(args.quoteRequestId)}/approve`, {
-        decidedBy: 'operator-via-agent-approval',
+        decidedBy: process.env.AGENT_OPERATOR_ID ?? 'operator-via-agent-approval',
         reason: args.reason,
-      }, exec.signal)
+      }, exec)
     },
   }))
 }

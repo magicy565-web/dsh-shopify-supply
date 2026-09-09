@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { AgentEvent } from '@dsh-supply/agent-contracts'
 import type { CatalogProduct, CatalogSearchResult } from '@dsh-supply/catalog'
 import type { SourcingCaseView } from '@dsh-supply/procurement'
-import { api, streamMessage } from '../lib/api'
+import { api, isRecoverableSessionError, streamMessage } from '../lib/api'
 import { catalogQueryForText } from '../lib/catalog-match'
 import { demoProducts } from '../lib/demo'
 import { Brand, Icon, Presence, ProductArt } from './ui'
@@ -15,8 +15,9 @@ type View = 'agent' | 'supply' | 'orders' | 'settings'
 type Message = { id: string; role: 'user' | 'assistant'; text: string; products?: CatalogProduct[]; note?: string; draft?: string }
 type Order = { id: string; status: string; destinationCountry: string; createdAt: string; purchaseOrders?: Array<{ trackingNumber?: string }> }
 type Health = { runtime: string; storage: string; shopify: string }
+type ApprovalRequest = Extract<AgentEvent, { type: 'approval.requested' }>
 const suggestions = [{ category: '宠物用品', query: 'pet', text: '发现值得卖的宠物好物', detail: '从陪伴它的日常开始', art: '宠物', title: '饮水瓶' }, { category: '家居生活', query: 'lamp', text: '寻找有设计感的家居产品', detail: '让平凡的角落更有意思', art: '家居', title: '灯' }, { category: '生活配件', query: 'bag', text: '为我的品牌寻找下一款单品', detail: '小物件，也可以有大想法', art: '配件', title: '包' }]
-const friendlyTools: Record<string, string> = { search_catalog: '正在查找供货商品', get_product: '正在查看供货条件', compare_offers: '正在比较供应商报价', create_sourcing_case: '正在建立询价项目', draft_quote_request: '正在整理询价草稿', create_dropship_listing: '正在准备商品草稿' }
+const friendlyTools: Record<string, string> = { search_catalog: '正在查找供货商品', get_product: '正在查看供货条件', compare_offers: '正在比较供应商报价', create_sourcing_case: '正在建立询价项目', add_sourcing_candidate: '正在加入候选商品', draft_quote_request: '正在整理询价草稿', approve_quote_request: '正在确认询价', create_dropship_listing: '正在准备商品草稿', simulate_shopify_order: '正在模拟店铺订单', confirm_purchase_order: '正在确认采购单', ship_purchase_order: '正在回写物流单号' }
 const orderStatus: Record<string, string> = { received: '已接收', routed: '已分配供应商', fulfilled: '已履约', failed: '待处理' }
 const messageId = () => crypto.randomUUID()
 
@@ -46,8 +47,8 @@ export default function Workspace() {
   const [draftBusy, setDraftBusy] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersBusy, setOrdersBusy] = useState(false)
-  const [approval, setApproval] = useState<Extract<AgentEvent, { type: 'approval.requested' }>>()
   const [approvalBusy, setApprovalBusy] = useState(false)
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
   const [toast, setToast] = useState('')
   const [ideaContext, setIdeaContext] = useState<IdeaContext>()
   const [ideaMatches, setIdeaMatches] = useState<CatalogProduct[]>([])
@@ -109,7 +110,7 @@ export default function Workspace() {
   }, [ideaContext, demo])
   useEffect(() => { if (hydrated.current) localStorage.setItem('supply.saved', JSON.stringify(saved)) }, [saved])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) }, [toast])
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'end' }) }, [messages, approval])
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'end' }) }, [messages, approvals])
   useEffect(() => {
     if (selection) panelRef.current?.focus()
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSelection(undefined); setMobileNav(false); openerRef.current?.focus() } }
@@ -144,7 +145,7 @@ export default function Workspace() {
   function setMode(next: boolean) {
     if (busy || draftBusy) return
     searchSequence.current++
-    setDemo(next); setMessages([]); setProducts(next ? demoProducts : []); setSelection(undefined); setError(''); setOrders([]); setApproval(undefined); session.current = undefined; setActivity('随时开始')
+    setDemo(next); setMessages([]); setProducts(next ? demoProducts : []); setSelection(undefined); setError(''); setOrders([]); setApprovals([]); session.current = undefined; setActivity('随时开始')
     setView('agent')
   }
   async function loadCatalog(query = '', mode = demo, signal?: AbortSignal): Promise<CatalogProduct[]> {
@@ -187,27 +188,46 @@ export default function Workspace() {
       update({ products: results.slice(0, 6), text: results.length ? `找到 ${results.length} 款相关商品。先看看供货条件，再选择值得进一步了解的产品。` : '暂时没有找到匹配的商品。试试更简短的产品名称，或者浏览全部供货目录。', note: demo ? '演示数据 · 仅用于体验界面，价格与供货条件不构成真实报价。' : '结果来自当前商品库；价格、库存和运输条件需向供应商确认。' })
       if (!demo && health?.runtime === 'dsh') {
         setActivity('正在分析供货条件')
-        if (!session.current) session.current = (await api<{ id: string }>('/v1/sessions', {})).id
         let analysis = ''
-        await streamMessage(session.current, userText, event => {
+        const handleEvent = (event: AgentEvent) => {
           if (event.type === 'message.delta') { analysis += event.text; update({ text: analysis }) }
           if (event.type === 'tool.started') setActivity(friendlyTools[event.toolName] ?? '正在整理供货信息')
-          if (event.type === 'approval.requested') { setApproval(event); setActivity('等待你的确认') }
-          if (event.type === 'approval.resolved') { setApproval(undefined); setActivity('正在继续处理') }
-          if (event.type === 'agent.failed') throw new Error(event.message)
-        }, controller.signal)
+          if (event.type === 'approval.requested') { setApprovals(current => [...current.filter(item => item.approvalId !== event.approvalId), event]); setActivity('等待你的确认') }
+          if (event.type === 'approval.resolved') { setApprovals(current => current.filter(item => item.approvalId !== event.approvalId)); setActivity('正在继续处理') }
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            if (!session.current) session.current = (await api<{ id: string }>('/v1/sessions', {})).id
+            await streamMessage(session.current, userText, handleEvent, controller.signal)
+            break
+          } catch (caught) {
+            if (controller.signal.aborted) throw caught
+            if (attempt === 0 && isRecoverableSessionError(caught)) {
+              session.current = undefined
+              continue
+            }
+            throw caught
+          }
+        }
       }
       setActivity('已完成')
     } catch (caught) {
       if (controller.signal.aborted) { update({ text: '已停止本次分析。', note: undefined }); setActivity('已停止') }
       else { const text = caught instanceof Error && !/fetch|network/i.test(caught.message) ? caught.message : '暂时无法连接供货服务。你可以重试，或到设置中开启演示预览。'; update({ text }); setError(text); setActivity('连接需要检查') }
-    } finally { if (controller.signal.aborted) { update({ text: '已停止本次分析。' }); setActivity('已停止') } setBusy(false); setApproval(undefined) }
+    } finally {
+      if (controller.signal.aborted) {
+        update({ text: '已停止本次分析。' })
+        setActivity('已停止')
+        setApprovals([])
+      }
+      setBusy(false)
+    }
   }
   async function stop() { aborter.current?.abort(); if (session.current) { try { await api(`/v1/sessions/${session.current}/abort`, {}) } catch { setError('已停止接收结果，但未能确认服务端任务已停止。') } } }
-  async function decide(decision: 'allow' | 'deny') {
-    if (!approval || !session.current) return
+  async function decide(approvalId: string, decision: 'allow' | 'deny') {
+    if (!session.current) return
     setApprovalBusy(true)
-    try { await api(`/v1/sessions/${session.current}/approvals/${approval.approvalId}`, { decision }); setApproval(undefined) }
+    try { await api(`/v1/sessions/${session.current}/approvals/${approvalId}`, { decision }); setApprovals(current => current.filter(item => item.approvalId !== approvalId)) }
     catch { setError('确认未提交成功，请重试。') } finally { setApprovalBusy(false) }
   }
   async function createDraft() {
@@ -245,7 +265,7 @@ export default function Workspace() {
   })
   const selectedOffer = selection?.offer
   const validQuantity = !!selectedOffer && Number.isSafeInteger(Number(quantity)) && Number(quantity) >= selectedOffer.moq && Number(quantity) <= 1000000
-  const presence = approval ? 'waiting' : busy ? 'working' : error ? 'error' : 'idle'
+  const presence = approvals.length ? 'waiting' : busy ? 'working' : error ? 'error' : 'idle'
   const composer = <form className={`composer ${messages.length ? 'compact' : ''}`} onSubmit={e => { e.preventDefault(); void send() }}><label className="sr-only" htmlFor="supply-prompt">告诉 Supply Agent 你想寻找的商品</label><textarea ref={composerRef} id="supply-prompt" placeholder="描述你的选品想法，剩下的交给我…" value={input} onChange={e => setInput(e.target.value)} maxLength={2000} rows={2} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} /><div className="composer-bottom"><span className="composer-context"><Icon name="supply" size={15} /> {demo ? '演示商品库' : '自有供货目录'}<span className="context-divider" /><Icon name="globe" size={14} /> 全球选品</span>{busy ? <button type="button" className="send-button" onClick={() => void stop()} aria-label="停止分析"><Icon name="stop" size={15} /></button> : <button className="send-button" disabled={!input.trim()} aria-label="发送选品需求"><Icon name="arrow" size={20} /></button>}</div></form>
   const renderCards = (items: CatalogProduct[]) => <div className="offer-grid">{items.map(product => <OfferCard key={product.id} product={product} demo={demo} saved={saved.includes(product.id)} onSave={() => toggleSaved(product.id)} onOpen={value => openOffer(value)} onQuote={value => openOffer(value, 'quote')} />)}</div>
   const ideaNeeds = ideaContext?.need?.split(/[、,，]/).map(item => item.trim()).filter(Boolean) ?? []
@@ -256,7 +276,7 @@ export default function Workspace() {
   return <div className={`app-shell ${selection ? 'with-panel' : ''}`}>
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     {mobileNav && <button className="nav-scrim" aria-label="关闭导航" onClick={() => setMobileNav(false)} />}
-    <aside ref={sidebarRef} tabIndex={-1} inert={(narrow && !mobileNav) || (!!selection && overlayPanel)} className={`sidebar ${mobileNav ? 'mobile-open' : ''}`} aria-label="主导航"><a className="brand" href="#" onClick={e => { e.preventDefault(); void navigate('agent') }}><Brand /><span>supply<span className="brand-period">.</span></span><span className="brand-beta">BETA</span></a><button className="new-conversation" disabled={busy || draftBusy} onClick={() => { setMessages([]); setSelection(undefined); setInput(''); session.current = undefined; void navigate('agent'); composerRef.current?.focus() }}><Icon name="plus" size={17} /> 新的选品想法 <span>↗</span></button>
+    <aside ref={sidebarRef} tabIndex={-1} inert={(narrow && !mobileNav) || (!!selection && overlayPanel)} className={`sidebar ${mobileNav ? 'mobile-open' : ''}`} aria-label="主导航"><a className="brand" href="#" onClick={e => { e.preventDefault(); void navigate('agent') }}><Brand /><span>supply<span className="brand-period">.</span></span><span className="brand-beta">BETA</span></a><button className="new-conversation" disabled={busy || draftBusy} onClick={() => { setMessages([]); setSelection(undefined); setInput(''); setApprovals([]); session.current = undefined; void navigate('agent'); composerRef.current?.focus() }}><Icon name="plus" size={17} /> 新的选品想法 <span>↗</span></button>
       <div className="nav-label">你的工作伙伴</div><button className={`agent-nav ${view === 'agent' ? 'selected' : ''}`} onClick={() => void navigate('agent')} aria-current={view === 'agent' ? 'page' : undefined}><Presence state={presence} /><span><strong>Supply Agent</strong><small>{busy ? activity : '把想法变成下一款产品'}</small></span><span className="online-dot" /></button>
       <div className="nav-label second">工作空间</div><nav><a className="sidebar-link" href="/"><Icon name="spark" />灵感广场</a><button className={view === 'supply' && !onlySaved ? 'selected' : ''} aria-current={view === 'supply' && !onlySaved ? 'page' : undefined} onClick={() => { setOnlySaved(false); void navigate('supply') }}><Icon name="supply" />供货目录</button><button className={view === 'supply' && onlySaved ? 'selected' : ''} aria-current={view === 'supply' && onlySaved ? 'page' : undefined} onClick={() => { setOnlySaved(true); void navigate('supply') }}><Icon name="bookmark" />我的收藏{saved.length > 0 && <span className="nav-count">{saved.length}</span>}</button><button className={view === 'orders' ? 'selected' : ''} aria-current={view === 'orders' ? 'page' : undefined} onClick={() => void navigate('orders')}><Icon name="orders" />订单与履约</button></nav>
       <div className="sidebar-bottom"><div className="workspace-note"><span className="note-line" />从一个好想法，<br />到一门好生意。</div><button className="settings-nav" onClick={() => void navigate('settings')}><Icon name="settings" />设置与连接<Icon name="chevron" size={13} /></button><div className="profile"><span className="profile-avatar">S</span><span><strong>我的工作空间</strong><small>{demo ? '演示预览' : '个人工作空间'}</small></span><button className="icon-button" onClick={changeTheme} aria-label={theme === 'light' ? '切换深色模式' : '切换浅色模式'} title={theme === 'light' ? '深色模式' : '浅色模式'}><Icon name={theme === 'light' ? 'moon' : 'sun'} size={17} /></button></div></div>
@@ -270,7 +290,7 @@ export default function Workspace() {
       {view === 'agent' && <div className={`agent-view ${messages.length ? 'has-conversation' : ''}`}>
         {messages.length === 0 ? ideaContext ? ideaLanding : <section className="welcome"><div className="welcome-presence"><Presence large /><span className="welcome-spark">✳</span></div><div className="welcome-eyebrow">A GOOD IDEA STARTS HERE</div><h1>你想卖点什么<span>？</span></h1><p className="welcome-description">从发现好产品，到找到靠谱的供货伙伴。<br className="mobile-break" />一起把想法向前推一步。</p>{composer}<div className="quick-prompts">{[['宠物用品', '帮我找一些宠物用品'], ['家居生活', '帮我找一些家居氛围灯'], ['美妆个护', '找一些美妆个护产品'], ['户外出行', '寻找适合户外出行的产品']].map(([label, query]) => <button key={label} disabled={busy} onClick={() => void send(query)}>{label}<Icon name="chevron" size={12} /></button>)}</div><div className="inspiration-heading"><span>一点灵感，从这里开始</span><a href="/#discover">去灵感广场</a></div><div className="inspiration-grid">{suggestions.map(s => <button className="inspiration-card" key={s.query} onClick={() => void send(s.text)}><ProductArt category={s.art} title={s.title} /><div><span className="overline">{s.category}</span><strong>{s.text}</strong><small>{s.detail}</small></div><span className="inspiration-arrow"><Icon name="external" size={15} /></span></button>)}</div><div className="welcome-footnote"><span /> 供货条件清晰可见，每一步由你决定</div>{connection === 'offline' && !demo && <button className="demo-entry text-button" onClick={() => setMode(true)}>先体验演示工作空间 <Icon name="chevron" size={14} /></button>}</section>
         : <><div className="conversation" aria-label="选品对话">{messages.map(message => message.role === 'user' ? <div className="user-message" key={message.id}><div>{message.text}</div><span className="message-avatar">你</span></div> : <article className="assistant-message" key={message.id}><div className="message-heading"><Presence state={busy && message.id === messages.at(-1)?.id ? presence : 'idle'} /><strong>Supply Agent</strong><span>{message.draft ? '询价草稿' : '供货发现'}</span></div>{message.text && <p className="message-text">{message.text}</p>}{!message.text && busy && <div className="thinking-line"><span /><span /><span />正在查看供货目录</div>}{message.products && message.products.length > 0 && renderCards(message.products)}{message.draft && <><div className="draft-card"><span className="draft-icon"><Icon name="orders" size={22} /></span><div><strong>询价草稿已准备好</strong><p>{message.draft}</p><span>等待确认商业条件</span></div><Icon name="check" size={18} /></div>{loopBack}</>}{message.note && <p className="source-note ui-disclaimer"><Icon name="supply" size={13} />{message.note}</p>}{message.products?.length === 0 && <button className="small-button" onClick={() => void navigate('supply')}>浏览全部供货目录 <Icon name="chevron" size={13} /></button>}</article>)}
-          {approval && <div className="approval-card" role="status"><span className="approval-symbol"><Icon name="spark" /></span><div><h3>这一步，需要你确认</h3><p>{friendlyTools[approval.toolName] ?? approval.toolName}</p>{approval.reason && <p>{approval.reason}</p>}<div className="button-row"><button className="primary-button" disabled={approvalBusy} onClick={() => void decide('allow')}>允许这一次</button><button className="small-button" disabled={approvalBusy} onClick={() => void decide('deny')}>拒绝</button></div></div></div>}<div ref={bottom} /></div><div className="composer-dock">{busy && <div className="activity-line" role="status"><Presence state={presence} />{activity}</div>}{composer}<span className="composer-hint">Enter 发送 · Shift + Enter 换行 · 商业条件以供应商确认为准</span></div></>}
+          {approvals.map(approval => <div className="approval-card" role="status" key={approval.approvalId}><span className="approval-symbol"><Icon name="spark" /></span><div><h3>这一步，需要你确认</h3><p>{friendlyTools[approval.toolName] ?? approval.toolName}</p>{approval.reason && <p>{approval.reason}</p>}{approval.arguments != null && <pre className="approval-args">{JSON.stringify(approval.arguments, null, 2)}</pre>}<div className="button-row"><button className="primary-button" disabled={approvalBusy} onClick={() => void decide(approval.approvalId, 'allow')}>允许这一次</button><button className="small-button" disabled={approvalBusy} onClick={() => void decide(approval.approvalId, 'deny')}>拒绝</button></div></div></div>)}<div ref={bottom} /></div><div className="composer-dock">{busy && <div className="activity-line" role="status"><Presence state={presence} />{activity}</div>}{composer}<span className="composer-hint">Enter 发送 · Shift + Enter 换行 · 商业条件以供应商确认为准</span></div></>}
       </div>}
 
       {view === 'supply' && <section className="collection-view"><div className="page-heading"><div><div className="overline">YOUR NEXT OPPORTUNITY</div><h1>{onlySaved ? '留住好想法。' : '找到下一款好产品。'}</h1><p>查看供货条件，把值得继续了解的产品留下来。</p></div><span className="count-label">{catalogBusy && !shownProducts.length ? '加载中' : `${shownProducts.length} 款产品`}</span></div><div className="catalog-toolbar"><div className="segmented"><button className={!onlySaved ? 'active' : ''} onClick={() => setOnlySaved(false)}>全部商品</button><button className={onlySaved ? 'active' : ''} onClick={() => setOnlySaved(true)}>我的收藏</button></div><form className="catalog-search" onSubmit={searchCatalog}><Icon name="search" size={16} /><input aria-label="搜索供货目录" placeholder="搜索商品、品类或 SKU" value={catalogFilter} onChange={e => setCatalogFilter(e.target.value)} /><button className="icon-button" aria-label="搜索目录"><Icon name="chevron" size={15} /></button></form></div>{catalogBusy && !shownProducts.length ? <div className="empty-state ui-empty" role="status"><Presence state="working" /><p>正在加载供货目录…</p></div> : shownProducts.length ? renderCards(shownProducts) : <div className="empty-state ui-empty"><Icon name={onlySaved ? 'bookmark' : 'supply'} size={34} /><h2>{onlySaved ? '给好产品留个位置' : '这里还没有匹配的产品'}</h2><p>{onlySaved ? '点击商品卡片上的收藏图标，稍后在这里继续。' : catalogFilter.trim() ? '试试其他关键词，或清除搜索后浏览全部商品。' : '试试其他关键词，或先体验演示商品。'}</p><button className="small-button" onClick={() => { if (onlySaved) setOnlySaved(false); else if (catalogFilter.trim()) setCatalogFilter(''); else if (!demo && !products.length) setMode(true); else void navigate('supply') }}>{onlySaved ? '浏览全部商品' : catalogFilter.trim() ? '清除搜索' : !demo ? '体验演示商品' : '重新加载'}</button></div>}</section>}

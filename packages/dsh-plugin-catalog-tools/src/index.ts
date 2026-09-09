@@ -1,15 +1,15 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { agentGatewayBaseUrl, agentInternalHeaders } from '@dsh-supply/config'
 
 export const name = 'dsh-supply-catalog-tools'
 export const inject = ['tools']
 
-function apiBase(): string {
-  return (process.env.CATALOG_API_URL ?? `http://127.0.0.1:${process.env.AGENT_GATEWAY_PORT ?? '8787'}`).replace(/\/$/, '')
-}
-
 async function api(path: string, init?: RequestInit): Promise<JsonValue> {
-  const response = await fetch(`${apiBase()}${path}`, init)
+  const response = await fetch(`${agentGatewayBaseUrl()}${path}`, {
+    ...init,
+    headers: agentInternalHeaders(),
+  })
   const body = await response.json() as unknown
   if (!response.ok) {
     const message = typeof body === 'object' && body !== null && 'error' in body
@@ -25,6 +25,21 @@ function renderJson(value: unknown): Array<{ type: 'text'; text: string }> {
 }
 
 export function apply(ctx: Context): void {
+  for (const [name, description] of [
+    ['search_public_web', 'Search public reference sources. Results are search snippets, not verified market research.'],
+    ['get_launch_run', 'Read the launch task, existing campaign schema and prior evidence before editing.'],
+    ['write_campaign_draft', 'Save a complete campaign draft for a launch task. Requires user approval. Preserve unknown fields as empty, never fabricate evidence.'],
+    ['record_launch_stage', 'Record stage results with evidence, questions and status. Stage IDs: define, research, supply, draft, review.'],
+  ]) {
+    ctx.tools.register(defineTool({
+      name: name!, description: description!,
+      parameters: { payload: { type: 'string', required: true, description: 'JSON object. Search: {query}; read: {runId}; draft: {runId,campaign}; stage: {runId,stage:{id,title,status,summary,evidence:[],questions:[]}}. Obtain campaign shape with get_launch_run first.' } },
+      output: { schema: { type: 'json' }, render: (_args, value) => renderJson(value) },
+      async execute(args, exec) {
+        return api(`/v1/launch/tools/${name}`, { method: 'POST', body: JSON.stringify(JSON.parse(args.payload)), signal: exec.signal })
+      },
+    }))
+  }
   ctx.tools.register(defineTool({
     name: 'search_catalog',
     description: 'Search the private product catalog. Use commercial filters when the buyer gives price, MOQ, or lead-time limits.',

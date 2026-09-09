@@ -2,16 +2,26 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from '../ui'
-import { categories, stages, examples, freshDraft, safeImage, isProject, relatedProjects, projectToDraft, creatorHref, LOCAL_PROJECTS, LOCAL_SAVED, LOCAL_FOLLOWING, LOCAL_DRAFT, type Project, type Draft } from '../../lib/inspiration'
+import { categories, stages, examples, freshDraft, safeImage, isProject, relatedProjects, projectToDraft, creatorHref, sharePath, LOCAL_PROJECTS, LOCAL_SAVED, LOCAL_FOLLOWING, LOCAL_DRAFT, type Project, type Draft } from '../../lib/inspiration'
 import { applyTheme, readTheme, type Theme } from '../../lib/theme'
+import { TechHero, MotionToast, VisualImage } from './visual-effects'
 import { ProjectCard } from './project-card'
 import { PublishForm } from './publish-form'
 import { ProjectDetail, type Comment } from './project-detail'
-import { api } from '../../lib/api'
+import { api, readToken, writeToken } from '../../lib/api'
+import { LaunchAgent } from './launch-agent'
+import { CreativeStudio } from './creative-studio'
+import { CampaignWorkbench } from './campaign-workbench'
+import { AuthPanel } from './auth-panel'
+import { ReviewQueue } from './review-queue'
+import type { CommunityApplication, CommunityNotification, SessionUser } from '../../lib/session'
 
-type Route = 'home' | 'discover' | 'project' | 'publish' | 'saved' | 'creators' | 'creator'
+type Route = 'home' | 'discover' | 'project' | 'publish' | 'saved' | 'creators' | 'creator' | 'studio' | 'projects' | 'review' | 'agent'
 const commentKey = 'supply.inspiration.comments.v1'
 const titles: Record<Route, string> = {
+  agent: '产品发布 Agent — Supply',
+  projects: '我的项目 — Supply',
+  studio: '创作工作室 — Supply',
   home: 'Supply 灵感 — 好想法，值得发生',
   discover: '发现灵感 — Supply',
   project: '项目详情 — Supply 灵感',
@@ -19,6 +29,7 @@ const titles: Record<Route, string> = {
   saved: '我的空间 — Supply 灵感',
   creators: '创作者 — Supply 灵感',
   creator: '创作者 — Supply 灵感',
+  review: '审核后台 — Supply',
 }
 
 export default function InspirationPlatform() {
@@ -33,31 +44,41 @@ export default function InspirationPlatform() {
   const [saved, setSaved] = useState<string[]>([])
   const [following, setFollowing] = useState<string[]>([])
   const [localProjects, setLocalProjects] = useState<Project[]>([])
+  const [published, setPublished] = useState<Project[]>([])
   const [draft, setDraft] = useState<Draft>(freshDraft)
   const [comments, setComments] = useState<Record<string, Comment[]>>({})
+  const [applications, setApplications] = useState<CommunityApplication[]>([])
+  const [session, setSession] = useState<SessionUser | null>(null)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [notes, setNotes] = useState<CommunityNotification[]>([])
+  const [notesOpen, setNotesOpen] = useState(false)
   const [spaceTab, setSpaceTab] = useState('saved')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [ready, setReady] = useState(false)
+  const [draftStatus, setDraftStatus] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const [editId, setEditId] = useState('')
   const [theme, setTheme] = useState<Theme>('light')
   const [compactCats, setCompactCats] = useState(false)
-  const [inspirationOnline, setInspirationOnline] = useState(false)
+  const [communityOnline, setCommunityOnline] = useState(false)
   const topSearch = useRef<HTMLInputElement>(null)
   const content = useRef<HTMLElement>(null)
   const hydrated = useRef(false)
   const localRef = useRef<Project[]>([])
   const editIdRef = useRef('')
+  const publishedRef = useRef<Project[]>([])
   localRef.current = localProjects
   editIdRef.current = editId
-  const projects = [...localProjects, ...examples]
-  const project = projects.find(p => p.id === projectId)
+  publishedRef.current = published
+  const projects = [...published, ...examples]
+  const project = projects.find(p => p.id === projectId) ?? localProjects.find(p => p.id === projectId)
   const editing = localProjects.find(p => p.id === editId)
   const creatorName = route === 'creator' ? (() => { try { return decodeURIComponent(projectId) } catch { return projectId } })() : creatorFilter
   const creatorProjects = creatorName ? projects.filter(p => p.creator === creatorName) : []
   const showCategories = route === 'home' || route === 'discover'
+  const unread = notes.filter(item => !item.read).length
 
   useEffect(() => {
     const next = readTheme()
@@ -68,15 +89,31 @@ export default function InspirationPlatform() {
     const parsedProjects = Array.isArray(loadedProjects) ? loadedProjects.filter(isProject) : []
     localRef.current = parsedProjects
     setLocalProjects(parsedProjects)
-    void api<{ items: Project[] }>('/v1/inspiration/projects', undefined, AbortSignal.timeout(1200)).then(({ items }) => {
-      setInspirationOnline(true)
+    const token = readToken()
+    if (token) {
+      void api<{ user: SessionUser }>('/v1/community/me', undefined, AbortSignal.timeout(2500)).then(({ user }) => {
+        setSession(user)
+        return Promise.all([
+          api<{ items: CommunityNotification[] }>('/v1/community/notifications'),
+          api<{ saved: string[]; following: string[] }>('/v1/community/projects').catch(() => null),
+        ])
+      }).then(result => {
+        if (!result) return
+        setNotes(result[0].items)
+      }).catch(() => writeToken(null))
+    }
+    void api<{ items: Project[]; viewer: { saved: string[]; following: string[] } }>('/v1/community/projects', undefined, AbortSignal.timeout(2500)).then(({ items, viewer }) => {
+      setCommunityOnline(true)
       const valid = items.filter(isProject)
-      if (!valid.length) return
-      setLocalProjects(current => { const byId = new Map([...current, ...valid].map(item => [item.id, item])); const merged = [...byId.values()]; for (const item of current) if (!valid.some(remoteProject => remoteProject.id === item.id)) void remote('/v1/inspiration/projects', item); persistProjectList(merged); return merged })
+      publishedRef.current = valid
+      setPublished(valid)
+      if (token) { setSaved(viewer.saved); setFollowing(viewer.following) }
     }).catch(() => undefined)
     const loadedSaved = read(LOCAL_SAVED), loadedFollowing = read(LOCAL_FOLLOWING)
-    if (Array.isArray(loadedSaved)) setSaved(loadedSaved.filter((s): s is string => typeof s === 'string'))
-    if (Array.isArray(loadedFollowing)) setFollowing(loadedFollowing.filter((s): s is string => typeof s === 'string'))
+    if (!token) {
+      if (Array.isArray(loadedSaved)) setSaved(loadedSaved.filter((s): s is string => typeof s === 'string'))
+      if (Array.isArray(loadedFollowing)) setFollowing(loadedFollowing.filter((s): s is string => typeof s === 'string'))
+    }
     const loadedDraft = read(LOCAL_DRAFT)
     if (loadedDraft && typeof loadedDraft === 'object') {
       const candidate = loadedDraft as Partial<Draft>, base = freshDraft()
@@ -96,7 +133,7 @@ export default function InspirationPlatform() {
     function syncRoute() {
       const [path, params] = window.location.hash.slice(1).split('?')
       const [page, id] = (path || 'home').split('/')
-      const nextRoute: Route = ['discover', 'project', 'publish', 'saved', 'creators', 'creator'].includes(page) ? page as Route : 'home'
+      const nextRoute: Route = ['discover', 'project', 'publish', 'saved', 'creators', 'creator', 'studio', 'projects', 'review', 'agent'].includes(page) ? page as Route : 'home'
       const search = new URLSearchParams(params)
       setRoute(nextRoute)
       setProjectId(id ?? '')
@@ -139,6 +176,12 @@ export default function InspirationPlatform() {
     const match = localProjects.find(p => p.id === edit)
     if (match && editId !== edit) { setEditId(edit); setDraft(projectToDraft(match)) }
   }, [route, localProjects, editId])
+
+  useEffect(() => {
+    if (!ready || editId || (route !== 'studio' && route !== 'publish')) return
+    try { localStorage.setItem(LOCAL_DRAFT, JSON.stringify(draft)); setDraftStatus('草稿已自动保存在此浏览器') }
+    catch { setDraftStatus('自动保存失败，请手动保存草稿或缩小封面图片') }
+  }, [draft, ready, editId, route])
 
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 4000); return () => clearTimeout(timer) }, [notice])
   useEffect(() => { if (searchOpen) topSearch.current?.focus() }, [searchOpen])
@@ -188,6 +231,15 @@ export default function InspirationPlatform() {
     setNotice('灵感已发布到本地预览，尚未对其他用户公开。'); window.location.hash = `project/${item.id}`; return true
   }
   function saveDraft() { if (persist(LOCAL_DRAFT, draft)) setNotice('草稿已保存在当前浏览器，下次可以继续。') }
+  function releaseCampaign(p: Project) {
+    const previous = localRef.current.find(item => item.id === p.id)
+    const item = { ...p, supporters: previous?.supporters ?? 0, updates: previous?.updates ?? [], date: previous?.date ?? p.date }
+    const next = [item, ...localRef.current.filter(project => project.id !== p.id)]
+    if (!persist(LOCAL_PROJECTS, next)) return false
+    localRef.current = next; setLocalProjects(next)
+    setNotice('项目已发布到本地发现页。其他用户暂不可见。')
+    return true
+  }
   function selectCategory(value: string) { setCategory(value); setQuery(''); setCreatorFilter(''); setStage('全部阶段'); window.location.hash = 'discover' }
   function search(e: FormEvent) { e.preventDefault(); setCategory('全部灵感'); setCreatorFilter(''); window.location.hash = 'discover'; setSearchOpen(false) }
   function addComment(id: string, text: string) {
@@ -240,8 +292,8 @@ export default function InspirationPlatform() {
     if (sort === '最新发布') result = result.sort((a, b) => b.date.localeCompare(a.date))
     return result
   }
-  const cards = (items: Project[]) => <div className="ip-project-grid">{items.map(p => <ProjectCard key={p.id} project={p} saved={saved.includes(p.id)} followed={following.includes(p.id)} onSave={() => toggleSave(p.id)} />)}</div>
-  const empty = (title: string, description: string) => <div className="ip-empty ui-empty"><Icon name="spark" size={30} /><h2>{title}</h2><p>{description}</p><button className="ip-btn green" onClick={() => { setQuery(''); setCategory('全部灵感'); setStage('全部阶段'); setCreatorFilter(''); window.location.hash = 'discover' }}>发现更多灵感 <Icon name="chevron" size={15} /></button></div>
+  const cards = (items: Project[]) => <div className="ip-project-grid" key={`${route}:${category}:${stage}:${sort}:${query}`}>{items.map((p, index) => <ProjectCard index={index} key={p.id} project={p} saved={saved.includes(p.id)} followed={following.includes(p.id)} onSave={() => toggleSave(p.id)} />)}</div>
+  const empty = (title: string, description: string) => <div className="ip-empty ui-empty"><VisualImage className="visual-empty-guide" src="/inspiration/creation-guide-v1.webp" alt="创作概念示意图"/><small>概念视觉 · AI 生成</small><h2>{title}</h2><p>{description}</p><button className="ip-btn green" onClick={() => { setQuery(''); setCategory('全部灵感'); setStage('全部阶段'); setCreatorFilter(''); window.location.hash = 'discover' }}>发现更多灵感 <Icon name="chevron" size={15} /></button></div>
   const featured = examples[0]
   const featuredCount = featured.supporters + Number(following.includes(featured.id))
   const activityItems = projects.flatMap(p => p.updates.map(update => ({ ...update, project: p }))).sort((a, b) => b.date.localeCompare(a.date))
@@ -252,18 +304,22 @@ export default function InspirationPlatform() {
         <a className="ip-logo" href="#home" aria-label="Supply 灵感首页"><span className="ip-logo-star">✳</span>supply<span className="ip-logo-dot">.</span><span className="ip-logo-sub">灵感，让好产品发生</span></a>
         <nav className="ip-main-nav" aria-label="主要导航">
           <a href="#discover" aria-current={route === 'discover' ? 'page' : undefined}>发现灵感</a>
+          <a href="#agent">产品 Agent</a><a href="#studio" aria-current={route === 'studio' ? 'page' : undefined}>创作工作室</a>
+          <a href="#projects" aria-current={route === 'projects' ? 'page' : undefined}>我的项目</a>
           <a href="#creators" aria-current={route === 'creators' || route === 'creator' ? 'page' : undefined}>创作者</a>
           <a href="/workspace">供应链工作台 <span>↗</span></a>
         </nav>
         <div className="ip-header-actions">
+          <button className="ip-btn light" onClick={() => setAuthOpen(true)}>{session ? session.name : '登录'}</button>
           <button className="ip-icon-btn" aria-label={theme === 'light' ? '切换深色模式' : '切换浅色模式'} title={theme === 'light' ? '深色模式' : '浅色模式'} onClick={changeTheme}><Icon name={theme === 'light' ? 'moon' : 'sun'} size={18} /></button>
           <button className="ip-icon-btn" aria-label="搜索灵感" aria-expanded={searchOpen} onClick={() => setSearchOpen(!searchOpen)}><Icon name="search" size={19} /></button>
           <a href="#saved" className="ip-my-space" aria-current={route === 'saved' ? 'page' : undefined}>我的空间</a>
-          <a href="#publish" className="ip-btn green"><Icon name="plus" size={15} />发布灵感</a>
+          <a href="#agent" className="ip-btn green"><Icon name="plus" size={15} />创建产品</a>
           <button className="ip-icon-btn ip-menu-toggle" aria-label="展开导航" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}><Icon name={navOpen ? 'close' : 'menu'} /></button>
         </div>
       </div>
       {navOpen && <nav className="ip-mobile-nav"><a href="#discover" onClick={() => setNavOpen(false)}>发现灵感</a><a href="#creators" onClick={() => setNavOpen(false)}>创作者</a><a href="#saved" onClick={() => setNavOpen(false)}>我的空间</a><a href="#publish" onClick={() => setNavOpen(false)}>发布灵感</a><a href="/workspace">供应链工作台 ↗</a><button type="button" onClick={() => { changeTheme(); setNavOpen(false) }}>{theme === 'light' ? '深色模式' : '浅色模式'}</button></nav>}
+      {navOpen && <nav className="ip-mobile-nav" aria-label="创作入口"><a href="#projects" onClick={() => setNavOpen(false)}>我的项目</a><a href="#studio" onClick={() => setNavOpen(false)}>创作工作室</a></nav>}
       {searchOpen && <form className="ip-top-search ip-container" onSubmit={search}><Icon name="search" /><input ref={topSearch} aria-label="搜索产品、想法或创作者" placeholder="搜索产品、想法或创作者…" value={query} onChange={e => setQuery(e.target.value)} maxLength={100} onKeyDown={e => { if (e.key === 'Escape') setSearchOpen(false) }} /><button className="ip-btn green">搜索</button></form>}
     </header>
   )
@@ -272,6 +328,7 @@ export default function InspirationPlatform() {
     <div className="ip">
       <a className="skip-link" href="#ip-content" onClick={e => { e.preventDefault(); content.current?.focus(); content.current?.scrollIntoView() }}>跳到内容</a>
       {header}
+      {authOpen && <AuthPanel onClose={() => setAuthOpen(false)} onAuthed={user => { setSession(user); setAuthOpen(false); setNotice('已登录，可以开始 Agent 任务。') }} />}
       {showCategories && (
         <div className={`ip-category-bar ${compactCats ? 'is-compact' : ''}`}>
           <nav className="ip-container" aria-label="产品分类">
@@ -282,14 +339,7 @@ export default function InspirationPlatform() {
       {error && <div className="ip-global-error" role="alert">{error}<button className="ip-icon-btn" aria-label="关闭提示" onClick={() => setError('')}><Icon name="close" size={17} /></button></div>}
       <main ref={content} tabIndex={-1} id="ip-content">
         {route === 'home' && <>
-          <section className="ip-home-intro ip-container">
-            <div>
-              <span className="ip-eyebrow"><span /> FOR THE IDEAS THAT DESERVE TO EXIST</span>
-              <h1>好产品，<span>从一个想法开始。</span></h1>
-              <p>发现值得发生的产品灵感，遇见认真创造的人。下一件改变日常的小事，也许就在这里。</p>
-            </div>
-            <a className="ip-text-link" href="#publish">让你的想法被看见 <Icon name="external" size={16} /></a>
-          </section>
+          <TechHero />
           <section className="ip-feature-layout ip-container">
             <div className="ip-featured">
               <div className="ip-section-label"><span>本周精选</span><span>FEATURED IDEA / 01</span></div>
@@ -385,6 +435,8 @@ export default function InspirationPlatform() {
           ? <ProjectDetail
               key={project.id}
               project={project}
+              session={session}
+              onAskLogin={() => setAuthOpen(true)}
               saved={saved.includes(project.id)}
               followed={following.includes(project.id)}
               onSave={() => toggleSave(project.id)}
@@ -397,12 +449,16 @@ export default function InspirationPlatform() {
               onSaveRelated={toggleSave}
               onShare={() => void shareProject(project.id)}
               isOwner={!project.demo}
-              onEdit={() => { setDraft(projectToDraft(project)); window.location.hash = `publish?edit=${project.id}` }}
+              onEdit={() => { if (project.campaign) { window.location.hash = `projects?draft=${project.id}`; return } setDraft(projectToDraft(project)); window.location.hash = `publish?edit=${project.id}` }}
               onDelete={() => deleteProject(project.id)}
               onAddUpdate={(title, body) => addUpdate(project.id, title, body)}
             />
           : ready ? empty('这个灵感暂时不在这里。', '本地发布的项目只在创建它的浏览器中可见。') : <div className="ip-empty ui-empty" role="status">正在读取灵感…</div>)}
-        {route === 'publish' && <PublishForm draft={draft} setDraft={setDraft} onSave={saveDraft} onPublish={publish} existing={editing} />}
+        {route === 'studio' && !editing && <p className="ip-container qs-save-status" role="status">{draftStatus}</p>}
+        {route === 'agent' && <LaunchAgent session={session} onAskLogin={() => setAuthOpen(true)} />}
+        {route === 'studio' && <CreativeStudio draft={draft} setDraft={setDraft} onSave={saveDraft} onPublish={() => { window.location.hash = 'publish' }} />}
+        {(route === 'projects' || (route === 'publish' && !editing)) && <CampaignWorkbench initialDraft={draft} session={session} onNotice={setNotice} onAskLogin={() => setAuthOpen(true)} />}
+        {route === 'publish' && editing && <PublishForm draft={draft} setDraft={setDraft} onSave={saveDraft} onPublish={publish} existing={editing} />}
         {route === 'saved' && (
           <section className="ip-space ip-container">
             <div className="ip-page-intro">
@@ -474,11 +530,11 @@ export default function InspirationPlatform() {
           <nav aria-label="页脚导航"><a href="#discover">发现灵感</a><a href="#publish">成为创作者</a><a href="/workspace">供应链支持 ↗</a></nav>
         </div>
         <div className="ip-footer-note ip-container">
-          <span>{inspirationOnline ? '项目服务已连接 · 示例项目及关注数均为演示。' : '本地 UI 预览 · 示例项目及关注数均为演示。发布与互动只保存在当前浏览器。'}</span>
+          <span>示例项目及关注数均为演示。Agent 成果请以工具记录和来源为准。</span>
           <span>MADE FOR WHAT COMES NEXT.</span>
         </div>
       </footer>
-      {notice && <div className="ip-toast" role="status"><Icon name="check" size={17} />{notice}<button className="ip-icon-btn" aria-label="关闭通知" onClick={() => setNotice('')}><Icon name="close" size={14} /></button></div>}
+      <MotionToast message={notice}><button className="ip-icon-btn" aria-label="关闭通知" onClick={() => setNotice('')}><Icon name="close" size={14} /></button></MotionToast>
     </div>
   )
 }
